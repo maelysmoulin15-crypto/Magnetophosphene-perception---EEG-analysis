@@ -29,8 +29,13 @@
 %       functions/detect_onsets_from_MF_auto.m
 %       functions/build_epochs_from_order.m
 %
+% Inspired by: J. Maudolo (2014), internal MF–EEG epoching concept
+% Independent implementation: Maëlys Moulin, 2025
+% Key differences: EEGLAB I/O (.cnt), auto detection-channel selection,
+% robust onset detection (envelope + refractory), explicit sham ±10 s,
+% NaN padding at file edges, per-subject overrides, figure exports.
+%
 % AUTHOR  : Maëlys MOULIN
-% Inspired by Julien MODOLO
 % VERSION : 1.1
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
