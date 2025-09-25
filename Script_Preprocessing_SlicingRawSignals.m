@@ -49,16 +49,16 @@ fq_stim  = 20;           % e.g., "20Hz"
 coil_exp = "GLO";        % e.g., "GLO" (use the same token as in filenames)
 
 % Add your toolboxes
-addpath('/Users/maelys/Documents/MATLAB/');
-addpath('/Users/maelys/Documents/MATLAB/eeglab2025.0.0');
+addpath('');
+addpath('');
 eeglab;  % load I/O (no need to open the UI)
 
 % I/O locations
-raw_data_path   = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/EEG_Magnetophosphes_RawData';
-stim_order_file = sprintf('/Users/maelys/Documents/Data/Magnétophosphènes/Data/RandomSubject_%s.txt', coil_exp);
+raw_data_path   = '';
+stim_order_file = sprintf('.txt', coil_exp);
 
-seg_base_dir = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/EEG_Magnetophosphes_Epoch';
-fig_base_dir = '/Users/maelys/Documents/Data/Magnétophosphènes/Results';
+seg_base_dir = ''; % Save epoch path
+fig_base_dir = ''; % Save figure path
 fig_dir      = fullfile(fig_base_dir, 'Figures_preprocessing');
 
 if ~exist(seg_base_dir,'dir'), mkdir(seg_base_dir); end
