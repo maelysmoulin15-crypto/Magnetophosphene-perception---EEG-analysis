@@ -29,7 +29,7 @@
 %       functions/detect_onsets_from_MF_auto.m
 %       functions/build_epochs_from_order.m
 %
-% Inspired by: J. Maudolo (2014), internal MF–EEG epoching concept
+% Inspired by: J. Modolo (2014), internal MF–EEG epoching concept
 % Independent implementation: Maëlys Moulin, 2025
 %
 % Key differences: EEGLAB I/O (.cnt), auto detection-channel selection,
