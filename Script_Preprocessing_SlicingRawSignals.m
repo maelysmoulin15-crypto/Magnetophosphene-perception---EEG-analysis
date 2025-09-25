@@ -24,7 +24,7 @@
 % PREREQUISITES
 %   - MATLAB + EEGLAB (for pop_loadcnt / Neuroscan .cnt)
 %   - Order file "RandomSubject_<EXP>.txt" (size 55 x N_subjects)
-%   - Utility functions at the bottom of this file or as separate .m files:
+%   - Utility functions in the folder:
 %       functions/pick_detection_channel.m
 %       functions/detect_onsets_from_MF_auto.m
 %       functions/build_epochs_from_order.m
