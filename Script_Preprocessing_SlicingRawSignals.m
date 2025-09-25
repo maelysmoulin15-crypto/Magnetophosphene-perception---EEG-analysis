@@ -160,6 +160,7 @@ for s = 1:numel(subs)
 
     % -------- Detect onsets on RAW detection signal --------
     Det = double(eeg.data(det_idx,:));
+    Det = detrend(Det); 
     Det = Det - mean(Det);                          % remove DC
 
     fhint = [];
