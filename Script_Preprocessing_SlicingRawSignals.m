@@ -24,7 +24,7 @@
 % PREREQUISITES
 %   - MATLAB + EEGLAB (for pop_loadcnt / Neuroscan .cnt)
 %   - Order file "RandomSubject_<EXP>.txt" (size 55 x N_subjects)
-%   - Utility functions in the folder:
+%   - Utility functions at the bottom of this file or as separate .m files:
 %       functions/pick_detection_channel.m
 %       functions/detect_onsets_from_MF_auto.m
 %       functions/build_epochs_from_order.m
@@ -82,8 +82,12 @@ make_grid16      = true;   % 4 figures of 16 EEG subplots (up to 64 channels)
 grid_ds_maxpts   = 5000;   % ~points per channel for display (downsampling)
 
 % (OPTION) If the very first onset must be imposed for some subjects:
-% Example: manual_first_onset.S23 = 11.94; % seconds (Subject 23)
+% Example: manual_first_onset.S35 = 14.3172 % seconds (Subject 35)
 manual_first_onset = struct();  % leave empty for 100% auto
+% manual_first_onset.S35 = 14.327;
+% manual_first_onset.S41 = 2.4728;
+% manual_first_onset.S44 = 5.2338;
+
 
 %% ================== LOAD ORDER FILE + LIST SUBJECTS ================= %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -110,6 +114,11 @@ end
 subs = unique(sort(subs));
 fprintf('=== %d subject(s) found: %s ===\n', numel(subs), num2str(subs));
 
+% subs currently contains all subjects found on disk
+only_these = [35 41 44];               % <- choose who to rerun
+subs = intersect(subs, only_these);    % keep only those that exist on disk
+fprintf('=== Re-running subjects: %s ===\n', num2str(subs));
+
 %% ============================ MAIN LOOP ============================= %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -128,7 +137,7 @@ for s = 1:numel(subs)
     eeg = pop_loadcnt(file, 'dataformat','auto');
     fs  = eeg.srate;
     N   = size(eeg.data,2);
-    all_time = (0:N-1)/fs;
+    time = (0:N-1)/fs;
 
     % -------- Get this subject’s order (55 trials) --------
     if sub > size(stim_orders,2)
@@ -158,27 +167,23 @@ for s = 1:numel(subs)
         eeg_cols = setdiff(1:nCh, mf_found);        % all except MF if identified
     end
 
-    % -------- Detect onsets on RAW detection signal --------
+    % -------- Detect onsets on RAW detection signal (100% auto) --------
     Det = double(eeg.data(det_idx,:));
-    Det = detrend(Det); 
-    Det = Det - mean(Det);                          % remove DC
+    Det = detrend(Det);
+    Det = Det - mean(Det);
 
-    fhint = [];
+    % --- Ignorer un préfixe uniquement pour certains sujets (détection seule)
+    ignore_head_override = struct('S35', 14.0);  % secondes à ignorer pour S35
     key = sprintf('S%02d', sub);
-    if isfield(manual_first_onset, key) && ~isempty(manual_first_onset.(key))
-        fhint = round(manual_first_onset.(key) * fs);   % seconds -> samples
-        fprintf('   Manual first onset hint: %.3f s (sample %d)\n', ...
-            manual_first_onset.(key), fhint);
+    if isfield(ignore_head_override, key)
+        ignore_head_local = ignore_head_override.(key);
+        fprintf('   Detection: ignoring first %.3f s for subject %02d\n', ignore_head_local, sub);
+    else
+        ignore_head_local = ignore_head_sec;  % valeur globale (0.2 s)
     end
 
-    triggers_onset = detect_onsets_from_MF_auto( ...
-        Det, fs, nb_onset_expected, refractory_s, ignore_head_sec, env_smooth_sec, fhint);
-
-    fprintf('   Detected onsets: %d / expected ~%d\n', numel(triggers_onset), nb_onset_expected);
-    if isempty(triggers_onset)
-        warning('   No onset detected -> subject %02d SKIP', sub);
-        continue;
-    end
+    [triggers_onset, dbg] = detect_onsets_from_MF_auto( ...
+        Det, fs, nb_onset_expected, refractory_s, ignore_head_local, env_smooth_sec);
 
     % -------- Build 55 epoch indices (respect .txt order) --------
     [i_Beg_stim, i_End_stim] = build_epochs_from_order( ...
@@ -188,11 +193,11 @@ for s = 1:numel(subs)
     % -------- Figure: RAW detection channel + markers --------
     if make_laser_fig
         ds = max(1, floor(N/20000));              % ~20k points for display
-        tt = all_time(1:ds:end);
+        tt = time(1:ds:end);
 
         fig = figure('Name', sprintf('Subject %02d — %s RAW (detection)', sub, det_label), ...
             'Units','pixels','Position',[60 80 1600 500],'Visible','on');
-        plot(tt, Det(1:ds:end), 'k'); hold on; grid on; axis tight;
+        plot(time, Det, 'k'); hold on; grid on; axis tight;
         yl = ylim;
 
         % onsets = red triangles
@@ -201,9 +206,9 @@ for s = 1:numel(subs)
             'MarkerFaceColor','r', 'MarkerSize',5);
 
         % vertical lines = epoch starts (colored by intensity)
-        t_sham   = all_time(i_Beg_stim(intensities_order == 0));
-        t_50     = all_time(i_Beg_stim(intensities_order == 50));
-        t_others = all_time(i_Beg_stim(~ismember(intensities_order,[0 50])));
+        t_sham   = time(i_Beg_stim(intensities_order == 0));
+        t_50     = time(i_Beg_stim(intensities_order == 50));
+        t_others = time(i_Beg_stim(~ismember(intensities_order,[0 50])));
 
         line([t_sham; t_sham],   repmat(yl(:),1,numel(t_sham)),   'LineStyle','--','Color',[1 0 1],   'LineWidth',0.8);
         line([t_50;   t_50],     repmat(yl(:),1,numel(t_50)),     'LineStyle','--','Color',[1 0 0],   'LineWidth',0.8);
@@ -243,7 +248,7 @@ for s = 1:numel(subs)
             i0c = max(1, i0);
             i1c = min(N, i1);
             seg = x_raw(i0c:i1c);
-            tsg = all_time(i0c:i1c);
+            tsg = time(i0c:i1c);
 
             % pad tail if needed (keeps onset alignment)
             Lseg = numel(seg);
@@ -300,11 +305,11 @@ for s = 1:numel(subs)
         nper  = 16;
         nfig  = ceil(numel(chans)/nper);
         ds    = max(1, floor(N/max(1,grid_ds_maxpts)));
-        tt    = all_time(1:ds:end);
+        tt    = time(1:ds:end);
 
-        t_sham   = all_time(i_Beg_stim(intensities_order == 0));
-        t_50     = all_time(i_Beg_stim(intensities_order == 50));
-        t_others = all_time(i_Beg_stim(~ismember(intensities_order,[0 50])));
+        t_sham   = time(i_Beg_stim(intensities_order == 0));
+        t_50     = time(i_Beg_stim(intensities_order == 50));
+        t_others = time(i_Beg_stim(~ismember(intensities_order,[0 50])));
 
         for fi = 1:nfig
             idx = (fi-1)*nper + 1 : min(fi*nper, numel(chans));
@@ -329,8 +334,8 @@ for s = 1:numel(subs)
                 set(gca,'XTick',[],'YTick',[]);
             end
 
-            pngG = sprintf('Fig_Subject_Grid16_part%d_Subject%02d_%s_%dHz.png', fi, sub, coil_exp, fq_stim);
-            figG = sprintf('Fig_Subject_Grid16_part%d_Subject%02d_%s_%dHz.fig',  fi, sub, coil_exp, fq_stim);
+            pngG = sprintf('Fig_AllElectrodsDetection_Subject%02d_%s_%dHz_part%d.png', sub, coil_exp, fq_stim, fi);
+            figG = sprintf('Fig_AllElectrodsDetection_Subject%02d_%s_%dHz_part%d.fig', sub, coil_exp, fq_stim, fi);
             exportgraphics(fig, fullfile(fig_dir, pngG), 'Resolution', 300);
             savefig(fig, fullfile(fig_dir, figG));
             close(fig);
@@ -342,3 +347,5 @@ for s = 1:numel(subs)
 end
 
 fprintf('\n=== Done ===\n');
+
+
