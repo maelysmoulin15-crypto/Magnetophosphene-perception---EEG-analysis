@@ -30,6 +30,7 @@
 %       functions/build_epochs_from_order.m
 %
 % AUTHOR  : Maëlys MOULIN
+% Inspired by Julien MODOLO
 % VERSION : 1.1
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
