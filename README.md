@@ -1,5 +1,5 @@
 EEG Signals — Magnetic Field (MF) Exposure
 Slicing Raw EEG Signals into Epochs
 
-This repository contains MATLAB scripts to preprocess EEG recordings acquired during magnetic field (MF) exposure experiments.
-The main script scans raw EEG files, detects stimulation onsets, and slices the continuous EEG into 55 aligned epochs (5 s each) according to the predefined randomization order.
+This repository is inspired by an internal MATLAB script by Julien Maudolo (circa 2014) for MF–EEG experiments, which detects exposure onsets on a clean reference channel and applies the same epochs to all EEG channels in the exact randomized order.
+The present code is an independent re-implementation focused on raw, robust epoching (EEGLAB .cnt I/O, auto channel selection, explicit sham placement, NaN padding policy, subject-wise overrides), with no filtering nor spectral analysis performed here.
