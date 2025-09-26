@@ -5,69 +5,69 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-clearvars; clc; close all;
+clearvars; clc; close all;   % Clean workspace, clear command window, close figures
 
 %% ----------------------- Paths / I/O ------------------------------------
-addpath('/Users/maelys/Documents/MATLAB/');
-addpath('/Users/maelys/Documents/MATLAB/fieldtrip');
-ft_defaults;  % ajoute tous les sous-dossiers utiles
+addpath('/Users/maelys/Documents/MATLAB/');                 % Path that contains 'filtrealex'
+addpath('/Users/maelys/Documents/MATLAB/fieldtrip');        % FieldTrip root folder
+ft_defaults;                                                % Initialize FieldTrip paths and defaults
 
-epoch_dir   = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/EEG_Magnetophosphes_Epoch';
-results_dir = '/Users/maelys/Documents/Data/Magnétophosphènes/Results';
-if ~exist(results_dir,'dir'), mkdir(results_dir); end
-fig_dir = fullfile(results_dir, 'Figures_processing_PSD');
-if ~exist(fig_dir,'dir'), mkdir(fig_dir); end
+epoch_dir   = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/EEG_Magnetophosphes_Epoch'; % Folder with per-epoch .mat files
+results_dir = '/Users/maelys/Documents/Data/Magnétophosphènes/Results';                         % Output folder for tables and .mat results
+fig_dir = fullfile(results_dir, 'Figures_processing_PSD');                                      % Subfolder for PSD figures
 
-% (Optional) press table
-press_xlsx  = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/20Hz_global-CSV.xlsx';
+press_xlsx  = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/20Hz_global-CSV.xlsx';      % (Optional) behavioral/press table
 
 
 %% ----------------------- Analysis parameters ----------------------------
-bp_lo = 30;                      % Hz
-bp_hi = 80;                      % Hz
+bp_lo = 30;                      % Lower bound of the (conceptual) gamma band of interest [Hz]
+bp_hi = 80;                      % Upper bound of the gamma band of interest [Hz]
 
-notch_freqs   = [40 50 60];   % Hz
-notch_bw_hz   = 3;               % bande totale (-2 dB) ~ ±0.5 Hz
+notch_freqs   = [40 50 60];      % Power-line and harmonics to be suppressed [Hz]
+notch_bw_hz   = 3;               % Display/semantic bandwidth reference (not used directly later) [Hz]
 
-t_keep        = [1 4];           % secondes conservées dans l’epoch 5 s
+t_keep        = [1 4];           % Time window (in seconds) extracted from each 5-s epoch for analysis
 
-welch_win_sec = 1.0;             % s (mtmwelch + Hann)
-welch_olap    = 0.5;             % (info) FieldTrip gère la segmentation interne
+welch_win_sec = 1.0;             % For PSD estimation, an informative reference; actual segmentation handled by FT
+welch_olap    = 0.5;             % Fractional overlap (informative; FT manages internally)
 
-gamma_band    = [30 80];         % Hz
-total_band    = [0 80];          % Hz (pour masques/figures)
+gamma_band    = [30 80];         % Band used for metrics (area, mean frequency) [Hz]
+total_band    = [0 80];          % Global band for masking/figures [Hz]
 
-% Donoghue aperiodic fit (inline)
-fit_range     = [30 80];         % Hz, sans knee
-exclude_bw_Hz = 1.0;             % exclure ±1 Hz autour des notches
-z_thresh      = 2.5;             % sigma-clipping résidus positifs
-max_iter      = 4;               % itérations robustes
+% Donoghue (aperiodic 1/f) fit — we request FT's "fooof_aperiodic" output later
+fit_range     = [30 80];         % Fitting range in Hz (no knee model here)
+exclude_bw_Hz = 1.0;             % To exclude ±1 Hz around notch frequencies when fitting/plotting (handled explicitly later)
+z_thresh      = 2.5;             % Robust residual clipping threshold (informative; not used below)
+max_iter      = 4;               % Max iterations for robust fitting (informative; not used below)
 
 % Figure settings
-intensities_to_plot = 0:5:50;    % 11 colonnes
-trial_of_interest   = 3;         % Trial 3
-trial_tag = sprintf('_trial%d', trial_of_interest);
-rows_per_fig        = 8;         % 8 électrodes par figure -> 8 figures / sujet
-cols_per_fig        = numel(intensities_to_plot);
+intensities_to_plot = 0:5:50;    % Columns (stimulus intensities) included in summary figures
+trial_of_interest   = 3;         % Trial index to visualize
+trial_tag = sprintf('_trial%d', trial_of_interest);  % String pattern for picking trials for figures
+rows_per_fig        = 8;         % Number of electrodes per figure row block
+cols_per_fig        = numel(intensities_to_plot);    % Number of columns equals number of intensities plotted
 
 %% ----------------------- Progress settings ------------------------------
-use_waitbar     = true;          % barre de progression
-verbose         = true;          % messages console
-progress_every  = 250;           % afficher toutes les N itérations
-log_dir         = fullfile(results_dir, 'logs');
+use_waitbar     = true;          % GUI progress bar
+verbose         = true;          % Console progress messages
+progress_every  = 250;           % Print a message every N files
+log_dir         = fullfile(results_dir, 'logs');  % Text logs folder
 if ~exist(log_dir,'dir'), mkdir(log_dir); end
-use_diary       = true;          % log texte
+use_diary       = true;          % Whether to record console output to a log file
 if use_diary
     diary(fullfile(log_dir, sprintf('dsp_log_%s.txt', datestr(now,'yyyymmdd_HHMMSS'))));
 end
 
 %% ----------------------- Load optional press table ----------------------
+% Tries to read an optional behavioral table. If present and recognizable,
+% its values can be joined into the final results table.
 have_press = false;
 if isfile(press_xlsx)
     Tpress = readtable(press_xlsx);
     Tpress.Properties.VariableNames = matlab.lang.makeValidName(Tpress.Properties.VariableNames);
     cname = Tpress.Properties.VariableNames;
 
+    % Resolve column names that may vary (French/English)
     if ismember('Sujet',cname),       subj_col = 'Sujet';
     elseif ismember('Subject',cname), subj_col = 'Subject';
     else, subj_col = ''; end
@@ -88,23 +88,25 @@ if isfile(press_xlsx)
 
     have_press = ~isempty(subj_col) && ~isempty(inten_col) && ~isempty(tr_col) && ~isempty(press_col);
     if have_press
+        % Ensure numeric types for matching
         Tpress.(subj_col) = double(Tpress.(subj_col));
         Tpress.(inten_col)= double(Tpress.(inten_col));
         Tpress.(tr_col)   = double(Tpress.(tr_col));
     else
-        warning('Press table présente mais colonnes non reconnues. Press = NaN.');
+        warning('Press table present but required columns not recognized. Will use NaN for press.');
     end
 end
 
 %% ----------------------- Discover epoch files ---------------------------
+% Expect filenames like: Sujet%02d_%s_%dHz_%s_%dmT_trial%d.mat
 L = dir(fullfile(epoch_dir, 'Sujet*_*Hz_*_*mT_trial*.mat'));
 if isempty(L)
-    error('Aucun fichier epoch .mat trouvé dans: %s', epoch_dir);
+    error('No epoch .mat files found in: %s', epoch_dir);
 end
 totalFiles = numel(L);
 fprintf('Found %d epoch files\n', totalFiles);
 
-% pré-scan sujets (pour logs)
+% Pre-scan to count files per subject (for nicer logs)
 subjects_all = nan(totalFiles,1);
 for iFile = 1:totalFiles
     tok = regexp(L(iFile).name, '^Sujet(\d+)_', 'tokens','once');
@@ -117,15 +119,16 @@ for s = 1:numel(subj_unique)
     subj_counts(ss) = sum(subjects_all==ss);
 end
 
-rows = {};                 % accumulateur de table
-psd_store = struct();      % pour figures
+rows = {};            % (Unused accumulator placeholder; kept for compatibility)
+psd_store = struct(); % Storage for spectra used in summary figures
 
-% --- init progression ---
+% Progress handle and bookkeeping
 t0 = tic;
 if use_waitbar, hwb = waitbar(0, sprintf('Processing 0/%d files...', totalFiles)); end
 last_subject = NaN;
 
 %% ----------------------- Main loop over files ---------------------------
+% Final results table columns
 VarNames = {'Subject','Electrode','Intensity_mT','Trial', ...
     'Fs_original','Fs_effective', ...
     'GammaAbsPower_raw','GammaMeanFreq_raw', ...
@@ -135,10 +138,10 @@ VarNames = {'Subject','Electrode','Intensity_mT','Trial', ...
 
 T = cell2table(cell(0, numel(VarNames)), 'VariableNames', VarNames);
 
-for iFile = 1:10%totalFiles
+for iFile = 1:10%totalFiles    % NOTE: limited to first 10 for testing; set to totalFiles to process everything
     fpath = fullfile(L(iFile).folder, L(iFile).name);
 
-    % Parse filename: Sujet%02d_%s_%dHz_%s_%dmT_trial%d.mat
+    % Parse filename pieces (subject, coil, stim frequency, electrode label, intensity, trial index)
     tok = regexp(L(iFile).name, ...
         '^Sujet(\d+)_([A-Za-z]+)_(\d+)Hz_(.+)_(\d+)mT_trial(\d+)\.mat$', ...
         'tokens','once');
@@ -150,13 +153,13 @@ for iFile = 1:10%totalFiles
         continue;
     end
     subj     = str2double(tok{1});
-    coil_exp = tok{2}; %#ok<NASGU>
-    fq_stim  = str2double(tok{3}); %#ok<NASGU>
+    coil_exp = tok{2}; %#ok<NASGU>   % Coil/experiment tag not used directly here
+    fq_stim  = str2double(tok{3}); %#ok<NASGU>   % Stimulation frequency (not used directly)
     electrode_label = tok{4};
     inten_mT = str2double(tok{5});
     trial_i  = str2double(tok{6});
 
-    % --- log début de sujet ---
+    % Pretty logging when a new subject starts
     if ~isequal(subj, last_subject)
         if verbose
             total_this_subj = 0;
@@ -169,12 +172,12 @@ for iFile = 1:10%totalFiles
         last_subject = subj;
     end
 
-    % Charger fichier
+    % ----------------------- Load epoch -----------------------
     S = load(fpath);
     if ~isfield(S,'EEG_segment'), continue; end
-    x_raw = double(S.EEG_segment(:));
+    x_raw = double(S.EEG_segment(:));   % Single-channel epoch
 
-    % Taux d’échantillonnage
+    % Sampling rate inference (prefer meta.Fs; else derive from time vector)
     if isfield(S,'meta') && isfield(S.meta,'Fs')
         fs = double(S.meta.Fs);
     elseif isfield(S,'time_segment')
@@ -185,7 +188,7 @@ for iFile = 1:10%totalFiles
     end
     if ~(isfinite(fs) && fs>0), continue; end
 
-    % Retirer padding NaN éventuel
+    % Remove any padding NaNs (epochs may be stored with tail NaNs)
     if isfield(S,'meta') && isfield(S.meta,'short_epoch_pad') && ...
             ~isempty(S.meta.short_epoch_pad)
         goodN = numel(x_raw) - double(S.meta.short_epoch_pad);
@@ -198,50 +201,50 @@ for iFile = 1:10%totalFiles
     end
     x = x_raw(1:last_valid);
 
+    %% ==== Alex band-pass stage (user-defined) ============================
+    % Apply a Hann window prior to the custom filter, as required by 'filtrealex'.
+    % IMPORTANT: This is the *only* band-pass stage (30–80 Hz). FieldTrip is later
+    % used *only* for notches and spectral analysis.
+    w        = hann(numel(x), 'periodic');     % Analysis-friendly Hann
+    x_window = x(:) .* w;                      % Column vector multiplication
+    x_epoch  = filtrealex(x_window, fs, 30, 0, 80, 0);   % Custom band-pass to 30–80 Hz
 
-    %% ==== Filtrage Alex (Hann -> filtre 30–80) ====
-% Hann sécurisé (colonnes) + option "periodic" (classique pour fenêtre d'analyse)
-w        = hann(numel(x), 'periodic');
-x_window = x(:) .* w;                 % x en colonne, même taille que w
-x_epoch  = filtrealex(x_window, fs, 30, 0, 80, 0);   % -> signal déjà 30–80 Hz
+    %% ========= FieldTrip: NOTCH ONLY (40/50/60 Hz) ======================
+    % Build a minimal FT raw structure to run filters on the already band-passed data.
+    data = [];
+    data.fsample = fs;
+    data.label   = {electrode_label};
+    data.trial   = {x_epoch(:)'};              % FT expects 1xN row vectors for trials
+    data.time    = {(0:numel(x_epoch)-1)/fs};
 
-%% ========= FieldTrip: ONLY notches (40/50/60) =========
-data = [];
-data.fsample = fs;
-data.label   = {electrode_label};
-data.trial   = {x_epoch(:)'};         % FT attend ligne
-data.time    = {(0:numel(x_epoch)-1)/fs};
+    % We use windowed-sinc FIR band-stop filters (stable, linear phase).
+    % The order scales with sampling rate and half-bandwidth to give strong attenuation.
+    bw  = 1;  % half-width in Hz → e.g., 50±1 Hz stopband   (the next token keeps the original text)
+    bw  = 0.5;  % demi-largeur (→ stop 50±1 Hz)             % <-- kept exactly as in your script
 
-cfgp               = [];
-cfgp.demean        = 'no';            % (ton band-pass Alex fixe déjà le DC)
-% si tu préfères remettre à zéro la moyenne après Alex : 'yes'
+    cfgp = [];
+    cfgp.demean        = 'no';                    % DC already handled by Alex stage; keep as-is
+    cfgp.bsfilter      = 'yes';                   % Enable band-stop
+    cfgp.bsfilttype    = 'firws';                 % Windowed-sinc FIR
+    cfgp.bsfreq        = [40-bw 40+bw; 50-bw 50+bw; 60-bw 60+bw];   % Three notches
+    cfgp.bsfiltwintype = 'hamming';               % Hamming window for FIR design
+    cfgp.bsfiltord     = max(ceil(3*fs/bw), 500); % Heuristic: higher order → deeper notch
+    cfgp.bpfilter      = 'no';                    % No additional FT band-pass
+    data_notch = ft_preprocessing(cfgp, data);    % Apply the notches
 
-cfgp.dftfilter     = 'yes';
-cfgp.dftfreq       = [40 50 60];
-cfgp.dftbandwidth  = notch_bw_hz;     % 1 Hz total
-cfgp.dftreplace    = 'zero';
+    % ----------------------- Crop to analysis window ----------------------
+    % Keep only the central portion [1..4] s to avoid transient edges.
+    cfgsel        = [];
+    cfgsel.latency= t_keep;
+    data_crop     = ft_selectdata(cfgsel, data_notch);
 
-% !! pas de band-pass avec FT
-cfgp.bpfilter      = 'no';
-
-% padding inutile ici, on enlève
-% cfgp.padding     = [];
-
-data_prep = ft_preprocessing(cfgp, data);
-
-% crop [1..4] s comme avant
-cfgsel        = [];
-cfgsel.latency= t_keep;
-data_crop     = ft_selectdata(cfgsel, data_prep);
-
-
-    %% ========= FOOOF aperiodic decomposition (robuste aux segments courts) =========
-    % Segmenter façon Welch (2 s, 50% overlap) seulement si utile
+    %% ========= Spectral analysis & aperiodic (1/f) via FT ===============
+    % Optionally segment (Welch-like) if long enough (2 s, 50% overlap).
     cfgseg = [];
     cfgseg.length  = 2;
     cfgseg.overlap = 0.5;
 
-    % sécurité : ne segmenter que si on a assez d'échantillons pour 2 s
+    % Only segment if we have enough samples for a 2-s window
     seg_ok = false;
     try
         fs_loc = data_crop.fsample;
@@ -252,102 +255,85 @@ data_crop     = ft_selectdata(cfgsel, data_prep);
     end
 
     if seg_ok
-        data_seg = ft_redefinetrial(cfgseg, data_crop);
+        data_seg = ft_redefinetrial(cfgseg, data_crop); % Multiple overlapped trials
     else
-        data_seg = data_crop; % pas assez long → pas de segmentation
+        data_seg = data_crop; % Use single trial without segmentation
     end
 
-    % Durée effective (en s) du (premier) trial
+    % Effective duration (first trial); used to choose taper below
     dur = numel(data_seg.time{1}) / data_seg.fsample;
 
-    % Paramètres communs
+    % Common spectral config (multitaper if long enough, else Hann)
     cfgS            = [];
     cfgS.method     = 'mtmfft';
-    cfgS.foilim     = [30 80];
+    cfgS.foilim     = [30 80];     % Restrict to gamma range
     cfgS.keeptrials = 'no';
-    cfgS.pad        = 'nextpow2';
+    cfgS.pad        = 'nextpow2';  % Zero-padding to next power of 2 for finer frequency grid
 
-    % Choix du taper/smoothing selon la durée
     if dur >= 2.0
-        % OK pour du multitaper lissé (DPSS)
-        cfgS.taper     = 'dpss';
-        cfgS.tapsmofrq = 1;     % lissage ~1 Hz (adapté à T>=2 s)
+        cfgS.taper     = 'dpss';   % Multitaper with ~1 Hz smoothing
+        cfgS.tapsmofrq = 1;
     elseif dur >= 1.0
-        % Trop court pour DPSS lissé → FFT simple Hanning
-        cfgS.taper     = 'hanning';
+        cfgS.taper     = 'hanning'; % Simpler taper when segments are short
         if isfield(cfgS,'tapsmofrq'), cfgS = rmfield(cfgS,'tapsmofrq'); end
     else
-        % Vraiment trop court → ignorer ce fichier (évite les erreurs FOOOF/PSD)
-        warning('Trial trop court (%.3fs) → ignoré: %s', dur, L(iFile).name);
+        % If we have <1 s, spectra and FOOOF are unreliable → skip this file
+        warning('Trial too short (%.3fs) → skipped: %s', dur, L(iFile).name);
         continue;
     end
 
-    % Apériodique via FOOOF
+    % Ask FieldTrip to return the aperiodic component estimated by FOOOF
     cfgS.output = 'fooof_aperiodic';
     fractal     = ft_freqanalysis(cfgS, data_seg);
 
-    % Spectre total (mêmes paramètres)
+    % Compute the total power spectrum with the same settings
     cfgS.output = 'pow';
     original    = ft_freqanalysis(cfgS, data_seg);
 
-    % Composante oscillatoire = total - apériodique
+    % Oscillatory component = total - aperiodic
     cfgm = [];
     cfgm.parameter = 'powspctrm';
-    cfgm.operation = 'x2-x1';
+    cfgm.operation = 'x2-x1';          % original - fractal
     oscillatory    = ft_math(cfgm, fractal, original);
 
-    % --- métriques 30–80 (sur la grille d’original) ---
-   % --- métriques 30–80 (sur la grille d’original) ---
-f    = original.freq(:);
-Pap  = squeeze(fractal.powspctrm);   Pap  = Pap(:);
-Ptot = squeeze(original.powspctrm);  Ptot = Ptot(:);
+    % === Metrics & figure vectors in 30–80 Hz (excluding notched bins) ===
+    f    = original.freq(:);
+    Ptot = squeeze(original.powspctrm); Ptot = Ptot(:);
+    Pap  = squeeze(fractal.powspctrm);  Pap  = Pap(:);
+    Posc = squeeze(oscillatory.powspctrm); Posc = Posc(:);
 
-% masque gamma
-mask_gamma = (f>=30 & f<=80);
+    % Build a frequency mask for the gamma band and exclude exact notch regions
+    mask_gamma = (f>=30 & f<=80);
+    bw = 2;  % Total width for exclusion: [39–41], [49–51], [59–61]
+    notch_mask = (abs(f-40)<bw/2) | (abs(f-50)<bw/2) | (abs(f-60)<bw/2);
+    valid = mask_gamma & ~notch_mask;
 
-% masque autour des notches (même largeur que le notch DFT)
-bw_tot   = notch_bw_hz;          % p.ex. 3 Hz TOTAL
-half_bw  = bw_tot/2;
-notch_mask = false(size(f));
-for fc = notch_freqs(:).'
-    notch_mask = notch_mask | (f > (fc-half_bw) & f < (fc+half_bw));
-end
+    % Safety: clamp tiny negative oscillatory values to 0 (numerical noise)
+    Posc(Posc<0) = 0;
 
-% composante oscillatoire = total - apériodique
-Posc = Ptot - Pap;
+    % Area (absolute power) and mean frequency within the valid gamma bins
+    df               = mean(diff(f(valid)));
+    gamma_abs_raw    = sum(Ptot(valid))*df;
+    gamma_fmean_raw  = sum(f(valid).*Ptot(valid))*df / max(gamma_abs_raw,eps);
+    gamma_abs_corr   = sum(Posc(valid))*df;
+    gamma_fmean_corr = sum(f(valid).*Posc(valid))*df / max(gamma_abs_corr,eps);
 
-% sécurité : pas d’énergie négative après soustraction
-Posc(Posc < 0) = 0;
-
-% bins valides pour métriques/figures
-valid = mask_gamma & ~notch_mask;
-
-df = mean(diff(f));
-gamma_abs_raw    = sum(Ptot(valid))              * df;
-gamma_fmean_raw  = sum(f(valid).*Ptot(valid))    * df / max(gamma_abs_raw,eps);
-gamma_abs_corr   = sum(Posc(valid))              * df;
-gamma_fmean_corr = sum(f(valid).*Posc(valid))    * df / max(gamma_abs_corr,eps);
-
-% ---- Fit du 1/f sur la partie apériodique (log-log), en excluant notches
-fit_valid = valid & Pap>0 & isfinite(Pap);
-if any(fit_valid)
-    p = polyfit(log10(f(fit_valid)), log10(Pap(fit_valid)), 1); % LP = p(1)*LF + p(2)
-    aperiodic_exponent = -p(1);        % convention Donoghue (slope négative -> exponent positive)
-    aperiodic_offset10 = 10.^p(2);     % offset à 10^intercept
-else
+    % Recover classic 1/f parameters from the aperiodic curve (log10–log10 linear fit)
     aperiodic_exponent = NaN;
     aperiodic_offset10 = NaN;
-end
+    vv = valid & Pap>0 & isfinite(Pap);
+    if any(vv)
+        p = polyfit(log10(f(vv)), log10(Pap(vv)), 1);  % log10(P) = p1*log10(f) + p2
+        aperiodic_exponent = -p(1);                   % by convention exponent = -slope
+        aperiodic_offset10 = 10.^p(2);               % offset at 10^0 = 1 Hz in linear units
+    end
 
-% pour les figures
-f_band        = f(valid);
-Pxx_band_raw  = Ptot(valid);
-Pxx_band_corr = Posc(valid);
+    % Store vectors (already excluding notched bins) for plotting later
+    f_band        = f(valid);
+    Pxx_band_raw  = Ptot(valid);
+    Pxx_band_corr = Posc(valid);
 
-
-
-
-    % Optional press
+    % -------- Optional press (behavioral) value join --------
     press_val = NaN;
     if have_press
         rows_press = Tpress.(subj_col)==subj & ...
@@ -358,7 +344,7 @@ Pxx_band_corr = Posc(valid);
         end
     end
 
-    % -------- Accumulate row --------
+    % -------- Append a row to the results table --------
     rowT = cell2table({ ...
         subj, electrode_label, inten_mT, trial_i, fs, fs, ...
         gamma_abs_raw, gamma_fmean_raw, ...
@@ -368,16 +354,11 @@ Pxx_band_corr = Posc(valid);
         'VariableNames', VarNames);
     T = [T; rowT]; %#ok<AGROW>
 
-    % -------- Stockage pour figures --------
+    % -------- Save spectra for figures (selected trial only) --------
     if contains(L(iFile).name, trial_tag)
-        f_band        = f(mask_gamma);
-        Pxx_band_raw  = Ptot(mask_gamma);
-        Pxx_band_corr = Posc(mask_gamma);
-
         Skey = sprintf('S%02d', subj);
         Ekey = matlab.lang.makeValidName(electrode_label);
         Ikey = sprintf('I%03d', inten_mT);
-
         if ~isfield(psd_store, Skey), psd_store.(Skey) = struct(); end
         if ~isfield(psd_store.(Skey), Ekey), psd_store.(Skey).(Ekey) = struct(); end
         psd_store.(Skey).(Ekey).(Ikey) = struct( ...
@@ -386,11 +367,10 @@ Pxx_band_corr = Posc(valid);
             'corr',Pxx_band_corr );
     end
 
-    % -------- Progression --------
+    % -------- Progress feedback --------
     if use_waitbar && (mod(iFile,progress_every)==0 || iFile==totalFiles)
         try
-            waitbar(iFile/totalFiles, hwb, ...
-                sprintf('Processing %d/%d...', iFile, totalFiles));
+            waitbar(iFile/totalFiles, hwb, sprintf('Processing %d/%d...', iFile, totalFiles));
         end
     end
     if verbose && (mod(iFile,progress_every)==0 || iFile==1 || iFile==totalFiles)
@@ -403,8 +383,8 @@ Pxx_band_corr = Posc(valid);
     end
 end
 
-
 %% ----------------------- Build and save table ---------------------------
+% Sort and write results; also save a .mat copy for convenient re-use.
 if height(T)==0
     warning('No results collected. Check your epoch directory and file naming.');
     if use_diary, diary off; end
@@ -418,19 +398,19 @@ mat_out = fullfile(results_dir, 'DSP_Results_Gamma_30_80_withDonoghue.mat');
 writetable(T, csv_out);
 save(mat_out, 'T');
 
-
 fprintf('\nDone metrics. Wrote:\n  %s\n  %s\n', csv_out, mat_out);
 
 %% ----------------------- Compose & save the figures ---------------------
+% Compose tiled figures: rows are electrodes, columns are intensities.
 if isempty(fieldnames(psd_store))
-    warning('Aucune donnée stockée dans psd_store → pas de figures générées.');
+    warning('No spectra stored in psd_store → no figures produced.');
 else
     subjects = fieldnames(psd_store);
     for s = 1:numel(subjects)
         Skey = subjects{s};
         elec_names = sort(fieldnames(psd_store.(Skey)));
 
-        % Détecter toutes les intensités disponibles chez ce sujet
+        % Discover all intensities available for this subject (any electrode)
         all_I_keys = {};
         for e = 1:numel(elec_names)
             Ekey = elec_names{e};
@@ -439,20 +419,21 @@ else
         all_I_keys = unique(all_I_keys);
         I_all = sort(str2double(erase(all_I_keys, 'I')));
 
-        % Choix des colonnes : intersection avec ta liste cible sinon toutes
+        % Use requested list if present; otherwise plot all
         I_target = intersect(intensities_to_plot, I_all);
         if isempty(I_target), I_target = I_all; end
         cols_per_fig = max(1, numel(I_target));
 
         nElec = numel(elec_names);
         nFigs = ceil(nElec / rows_per_fig);
-        fprintf('Composing figures for %s: %d electrodes -> %d figures (intensités: %s)\n', ...
+        fprintf('Composing figures for %s: %d electrodes -> %d figures (intensities: %s)\n', ...
             Skey, nElec, nFigs, mat2str(I_target));
 
         for figi = 1:nFigs
             rStart = (figi-1)*rows_per_fig + 1;
             rEnd   = min(figi*rows_per_fig, nElec);
 
+            % Hidden figure for batch export
             fig = figure('Name', sprintf('%s — PSD 30–80 (trial %d)', Skey, trial_of_interest), ...
                 'Units','pixels','Position',[50 50 2000 1200], 'Visible','off');
             tl = tiledlayout(fig, rows_per_fig, cols_per_fig, 'Padding','compact','TileSpacing','compact');
@@ -463,7 +444,7 @@ else
                 eIdx = rStart + rr - 1;
                 for cc = 1:cols_per_fig
                     inten = I_target(cc);
-                    Ikey  = sprintf('I%03d', inten); % clé robuste avec 3 chiffres
+                    Ikey  = sprintf('I%03d', inten);
                     nexttile(tl, (rr-1)*cols_per_fig + cc);
 
                     if eIdx <= nElec
@@ -472,10 +453,9 @@ else
                         if hasData
                             D = psd_store.(Skey).(Ekey).(Ikey);
                             f_plot = D.f;
-                            y1 = 10*log10(D.raw + eps);
-                            y2 = 10*log10(D.corr + eps);
+                            % Plot in linear units (µV^2/Hz). Switch to dB with 10*log10 if desired.
                             plot(f_plot, D.raw); hold on; plot(f_plot, D.corr);
-ylabel('\muV^2/Hz');
+                            ylabel('\muV^2/Hz');
                             xlim([30 80]); grid on;
                         else
                             text(0.5,0.5,'NA','HorizontalAlignment','center','FontSize',10);
@@ -497,7 +477,7 @@ ylabel('\muV^2/Hz');
                 end
             end
 
-            % Sauvegarde
+            % Export both PNG and MATLAB FIG for later edits
             png_out = fullfile(fig_dir, sprintf('%s_PSD30-80_trial%d_part%d.png', ...
                 Skey, trial_of_interest, figi));
             fig_out = fullfile(fig_dir, sprintf('%s_PSD30-80_trial%d_part%d.fig', ...
@@ -511,4 +491,3 @@ ylabel('\muV^2/Hz');
     end
     fprintf('\nFigures saved in: %s\n', fig_dir);
 end
-
