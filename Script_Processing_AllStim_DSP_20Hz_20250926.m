@@ -23,9 +23,6 @@ press_xlsx  = '/Users/maelys/Documents/Data/Magnétophosphènes/Data/20Hz_global
 bp_lo = 30;                      % Lower bound of the (conceptual) gamma band of interest [Hz]
 bp_hi = 80;                      % Upper bound of the gamma band of interest [Hz]
 
-notch_freqs   = [40 50 60];      % Power-line and harmonics to be suppressed [Hz]
-notch_bw_hz   = 3;               % Display/semantic bandwidth reference (not used directly later) [Hz]
-
 t_keep        = [1 4];           % Time window (in seconds) extracted from each 5-s epoch for analysis
 
 welch_win_sec = 1.0;             % For PSD estimation, an informative reference; actual segmentation handled by FT
@@ -220,7 +217,6 @@ for iFile = 1:10%totalFiles    % NOTE: limited to first 10 for testing; set to t
     % We use windowed-sinc FIR band-stop filters (stable, linear phase).
     % The order scales with sampling rate and half-bandwidth to give strong attenuation.
     bw  = 1;  % half-width in Hz → e.g., 50±1 Hz stopband   (the next token keeps the original text)
-    bw  = 0.5;  % demi-largeur (→ stop 50±1 Hz)             % <-- kept exactly as in your script
 
     cfgp = [];
     cfgp.demean        = 'no';                    % DC already handled by Alex stage; keep as-is
@@ -304,7 +300,6 @@ for iFile = 1:10%totalFiles    % NOTE: limited to first 10 for testing; set to t
 
     % Build a frequency mask for the gamma band and exclude exact notch regions
     mask_gamma = (f>=30 & f<=80);
-    bw = 2;  % Total width for exclusion: [39–41], [49–51], [59–61]
     notch_mask = (abs(f-40)<bw/2) | (abs(f-50)<bw/2) | (abs(f-60)<bw/2);
     valid = mask_gamma & ~notch_mask;
 
